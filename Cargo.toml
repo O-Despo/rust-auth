@@ -6,9 +6,10 @@ edition = "2021"
 [dependencies]
 sqlx = { version = "0.7", features = [ "runtime-tokio", "tls-rustls", "postgres"] }
 dotenvy = "0.15.7"
-actix-web = { version = "4", features = ["rustls-0_23"] }
+actix-web = { version = "4", features = ["rustls-0_23", "cookies"] }
 rustls = "0.23"
 rustls-pemfile = "2"
 argon2 = { version = "0.4", features = ["std"] }
 rand = {version = "0.8.5", features = ["std"]}
 serde = "1.0.203"
+chrono = "0.4.38"
