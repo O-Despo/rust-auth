@@ -1,4 +1,4 @@
-use argon2::password_hash::rand_core::impls;
+//! A set of base functions that are used to do all the underlying work of auth. This includes user and session management.
 use argon2::password_hash::Salt;
 use argon2::Argon2;
 use argon2::PasswordHasher;
@@ -6,33 +6,29 @@ use argon2::PasswordVerifier;
 use dotenvy;
 use rand::distributions::DistString;
 use rand::Rng;
-use sqlx::pool;
 use sqlx::Postgres;
 use sqlx::QueryBuilder;
 use serde;
 use sqlx::FromRow;
 use serde::ser::SerializeStruct;
 
+/// Basic information about a user. Note that `realm` can be a arbitrary string and you can use to figure out a group a user belongs to like `"admin"`.
 #[derive(serde::Deserialize, Clone)]
 pub struct Credentials {
     pub user_name: String,
     pub password: String,
-    pub realm: String,
+    pub realm: String, // the realm can be used to specify the set of permissions of a user
 }
 
+/// Information about a session. Each session is associated with a `user_name`.
 #[derive(Debug, FromRow)]
 pub struct Session {
     pub user_name: String,
     pub session_token: String,
     pub time_to_die: chrono::DateTime<chrono::Utc>
 }
-#[derive(FromRow)]
-struct UserRow {
-    user_name: String,
-    phc: String,
-    realms: String,
-}
 
+/// Error return type of `add_user`
 #[derive(Debug)]
 pub enum AddUserReturn {
     Good(),
@@ -42,28 +38,39 @@ pub enum AddUserReturn {
     InsertError(String),
 }
 
+/// Error return type of `validate_user`
 #[derive(Debug)]
 pub enum UserValidated {
     Validated(),
     NotValidated(),
 }
 
+/// Error return type of `generate_session`
 #[derive(Debug)]
 pub enum SessionGeneratedErr {
     UserNotValid(),
     FailedToAddToDatabase(String),
 }
 
+/// Return type of `validate_session`
 #[derive(Debug)]
 pub enum SessionValidated {
     ValidSession(),
     InvalidSession(), 
 }
 
+/// Return type of `invalidate_session`
 pub enum SessionInvalided {
     SucessfullyInvalidated(),
     DidNotExist(),
     Error(String),
+}
+
+#[derive(FromRow)]
+struct UserRow {
+    user_name: String,
+    phc: String,
+    realms: String,
 }
 
 impl serde::Serialize for Session{
@@ -79,8 +86,7 @@ impl serde::Serialize for Session{
     }
 }
 
-
-
+/// Generates a random string between the given ranges.
 fn gen_rand_string_between(min_len: u16, max_len: u16) -> String {
     let mut rng_source = rand::thread_rng();
     let str_len: usize = rng_source.gen_range((min_len + 1)..max_len).into();
@@ -88,11 +94,13 @@ fn gen_rand_string_between(min_len: u16, max_len: u16) -> String {
     rand::distributions::Alphanumeric.sample_string(&mut rng_source, str_len)
 }
 
+/// Generates a random string of a given length.
 fn gen_rand_string_of_len(len: u16) -> String {
     let mut rng_source = rand::thread_rng();
     rand::distributions::Alphanumeric.sample_string(&mut rng_source, len.into())
 }
 
+/// Provides a connection to a postgres server. This requires `DATABASE_URL` to be set.
 pub async fn connect_to_db_get_pool() -> Result<sqlx::Pool<Postgres>, sqlx::Error> {
     let dotenv_database_url_result = dotenvy::var("DATABASE_URL");
     let data_baseurl = match dotenv_database_url_result {
@@ -113,10 +121,10 @@ pub async fn connect_to_db_get_pool() -> Result<sqlx::Pool<Postgres>, sqlx::Erro
     return Ok(pool);
 }
 
-/// Will build the projects current default Argon2 harsher. This exists so that
+/// Builds the projects current default Argon2 harsher. This exists so that
 /// we avoid `default` and grantee the same settings for the harsher across the
-/// project. As some point in the future it would be good if this was loaded
-/// from ENV. Also I need to account for changes.
+/// As some point in the future it would be good if this was loaded
+/// from ENV.
 fn build_argon2_hasher<'a>() -> Argon2<'a> {
     argon2::Argon2::new(
         argon2::Algorithm::Argon2id,
@@ -125,9 +133,7 @@ fn build_argon2_hasher<'a>() -> Argon2<'a> {
     )
 }
 
-/// `generate_session`
-///
-/// Will create a session for the given user. The users information is stored
+/// Will create a session for the provided user. The users information is stored
 /// in `credentials`. Once the session is generated it will be stored in the
 /// DB. The validity and state of the session can be changed later with
 /// `validate_session` and `invalidate_session`.
@@ -172,7 +178,7 @@ pub async fn generate_session(
 
 /// `validate_session`
 ///
-/// Given a session will check if its valid in the database. 
+/// Given a session will check if its valid in the database.
 pub async fn validate_session(
     session: &Session,
     pool: &sqlx::Pool<Postgres>,
@@ -199,8 +205,9 @@ pub async fn validate_session(
     }
 }
 
-/// `validate_session`
-///
+/// `invalidate_session`
+/// 
+/// If the session exists in the database will drop the session. This means the user will no longer be able use this session from any request. 
 pub async fn invalidate_session(
     session: &Session,
     pool: &sqlx::Pool<Postgres>,
@@ -220,7 +227,10 @@ pub async fn invalidate_session(
 }
 
 
-/// will add a user to the auth database.
+/// `add_user`
+/// 
+/// Given the user information. Will add the user to the database. 
+/// This will allow the user to generate sessions with the given user information.
 pub async fn add_user(credentials: &Credentials, pool: &sqlx::Pool<Postgres>) -> AddUserReturn {
     // Generate Hasher instancef
     // Generate salt
@@ -261,26 +271,9 @@ pub async fn add_user(credentials: &Credentials, pool: &sqlx::Pool<Postgres>) ->
     }
 }
 
-/// drop_user TODO
+/// `validate_user`
 /// 
-/// Will remove a user and all references to that user from the database.
-/// Will remove from `users` and `sessions`. This will log out the user.
-/// NOTE that this dose not confirm that the user is who they say they are
-/// so the validly of the request should be checked before it is made.
-// async fn drop_user(credentials: &Credentials, pool: &sqlx::Pool<Postgres>) -> () {
-//     let sql_drop_user = "DELETE FROM users WHERE user_name='$1'";
-//     sqlx::query(&sql_drop_user)
-//     .bind(credentials.user_name)
-//     .execute()
-// }'
-
-/// Meant to be wrapped but can also be accessed remotely. Will return if a user
-/// is valid in the DB.
-///
-/// Given a `user_name`, `password` and `realm` uses the Argon2 generator
-/// function to create a instance and compare the hashes. Relies on
-/// `.verify_password` to amount for salt. Note that as of now any form of
-/// failure returns `NotValidated` which is not ideal.
+/// Given the user credentials provided will check if the credentials are valid and in the database.
 pub async fn validate_user(credentials: &Credentials, pool: &sqlx::Pool<Postgres>) -> UserValidated {
     //! 1. Get user from data base
     //! Build SQL for SELECT
