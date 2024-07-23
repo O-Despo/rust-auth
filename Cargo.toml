@@ -2,6 +2,8 @@
 name = "mini-rust-auth"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
+description = "A maybe to simple authentication crate."
 
 [dependencies]
 sqlx = { version = "0.7", features = [ "runtime-tokio", "tls-rustls", "postgres"] }
