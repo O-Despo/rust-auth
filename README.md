@@ -27,3 +27,8 @@ This crate is based on `Argon2` for hashing. All communication should be done ov
 ---
 
 This is a preliminary version and is still under development. Use it at your own risk.
+
+
+## License
+
+Disturbed under MIT license.
