@@ -123,8 +123,8 @@ pub async fn validate_session_wrapper(
 
 pub async fn session_based_generate_session(
     session: actix_session::Session,
-    json_creds: actix_web::web::Json<auth::Credentials>,
-    pool: actix_web::web::Data<sqlx::Pool<Postgres>>,
+    json_creds: auth::Credentials,
+    pool: &sqlx::Pool<Postgres>
 ) -> Result<auth::Session, impl Responder> {
     let creds = auth::Credentials {
         password: json_creds.password.to_string(),
@@ -132,7 +132,7 @@ pub async fn session_based_generate_session(
         realm: json_creds.realm.to_string(),
     };
 
-    let local_session = match auth::generate_session(&creds, pool.get_ref(), 0).await {
+let local_session = match auth::generate_session(&creds, pool, 0).await {
         Ok(session) => session,
         Err(_) => return Err(HttpResponse::Unauthorized().body("Session failed to generate")),
     };
@@ -167,8 +167,7 @@ pub async fn session_based_generate_session(
 
 pub async fn session_based_check_valid_session(
     client_session: actix_session::Session,
-    json_session: actix_web::web::Json<JsonSession>,
-    pool: actix_web::web::Data<sqlx::Pool<Postgres>>,
+    pool: &sqlx::Pool<Postgres>,
 ) -> Result<auth::Session, impl Responder> {
     let user_name = match client_session.get::<String>("user_name") {
         Ok(user_name_option) => match user_name_option {
