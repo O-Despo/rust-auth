@@ -21,6 +21,5 @@
 //! ## **Security notes**
 //! 
 //! This is based on 'Argon2' as of now. All commination should be done over tls. If you want yo use this feel free but be aware that I am no security expert.
-
 pub mod auth;
 pub mod wrappers;
