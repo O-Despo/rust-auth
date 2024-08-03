@@ -13,7 +13,7 @@ use sqlx::FromRow;
 use serde::ser::SerializeStruct;
 
 /// Basic information about a user. Note that `realm` can be a arbitrary string and you can use to figure out a group a user belongs to like `"admin"`.
-#[derive(Debug, serde::Deserialize, Clone)]
+#[derive(Debug, serde::Deserialize, serde::Serialize, Clone)]
 pub struct Credentials {
     pub user_name: String,
     pub password: String,

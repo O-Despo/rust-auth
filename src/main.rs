@@ -1,10 +1,8 @@
 use std::io::BufReader;
 use actix_web::{web, App, HttpServer};
 use std::fs::File;
-
 mod auth;
 mod wrappers;
-
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -37,6 +35,7 @@ async fn main() -> std::io::Result<()> {
         Err(err) => return Err(std::io::Error::other(err.to_string())),
     };
 
+                
     HttpServer::new(move || {
         App::new()
             .app_data(web::Data::new(postgres_pool.clone()))
