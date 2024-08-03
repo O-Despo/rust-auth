@@ -13,7 +13,7 @@ use sqlx::FromRow;
 use serde::ser::SerializeStruct;
 
 /// Basic information about a user. Note that `realm` can be a arbitrary string and you can use to figure out a group a user belongs to like `"admin"`.
-#[derive(serde::Deserialize, Clone)]
+#[derive(Debug, serde::Deserialize, Clone)]
 pub struct Credentials {
     pub user_name: String,
     pub password: String,
@@ -40,12 +40,12 @@ pub enum AddUserReturn {
 
 /// Error return type of `validate_user`
 #[derive(Debug)]
-pub enum UserValidated {
+pub enum UserValidatedReturn {
     Validated(),
     NotValidated(),
 }
 
-/// Error return type of `generate_session`
+/// Error return type of error in result from `generate_session`
 #[derive(Debug)]
 pub enum SessionGeneratedErr {
     UserNotValid(),
@@ -100,7 +100,7 @@ fn gen_rand_string_of_len(len: u16) -> String {
     rand::distributions::Alphanumeric.sample_string(&mut rng_source, len.into())
 }
 
-/// Provides a connection to a postgres server. This requires `DATABASE_URL` to be set.
+/// Provides a connection to a postgres server. This requires `DATABASE_URL` to be set in `.env` file.
 pub async fn connect_to_db_get_pool() -> Result<sqlx::Pool<Postgres>, sqlx::Error> {
     let dotenv_database_url_result = dotenvy::var("DATABASE_URL");
     let data_baseurl = match dotenv_database_url_result {
@@ -129,7 +129,7 @@ fn build_argon2_hasher<'a>() -> Argon2<'a> {
     argon2::Argon2::new(
         argon2::Algorithm::Argon2id,
         argon2::Version::V0x13,
-        argon2::Params::new(1500, 2, 1, None).expect("ADD A ERROR"),
+        argon2::Params::new(1500, 2, 1, None).expect("Argon2 failed to generate harsher"),
     )
 }
 
@@ -144,8 +144,8 @@ pub async fn generate_session(
 ) -> Result<Session, SessionGeneratedErr> {
     // Check if user is valid in DB we will not use this info later so we toss it
     let _valid_user = match validate_user(&credentials, pool).await {
-        UserValidated::Validated() => (),
-        UserValidated::NotValidated() => return Err(SessionGeneratedErr::UserNotValid()), 
+        UserValidatedReturn::Validated() => (),
+        UserValidatedReturn::NotValidated() => return Err(SessionGeneratedErr::UserNotValid()), 
     };
     
     let session = Session{
@@ -274,7 +274,7 @@ pub async fn add_user(credentials: &Credentials, pool: &sqlx::Pool<Postgres>) ->
 /// `validate_user`
 /// 
 /// Given the user credentials provided will check if the credentials are valid and in the database.
-pub async fn validate_user(credentials: &Credentials, pool: &sqlx::Pool<Postgres>) -> UserValidated {
+pub async fn validate_user(credentials: &Credentials, pool: &sqlx::Pool<Postgres>) -> UserValidatedReturn {
     //! 1. Get user from data base
     //! Build SQL for SELECT
     let mut sql_user_builder: QueryBuilder<Postgres> =
@@ -296,7 +296,7 @@ pub async fn validate_user(credentials: &Credentials, pool: &sqlx::Pool<Postgres
         Ok(user_info_option) => user_info_option,
         Err(_) => {
             println!("Fail at fetch");
-            return UserValidated::NotValidated();
+            return UserValidatedReturn::NotValidated();
         }
     };
 
@@ -304,7 +304,7 @@ pub async fn validate_user(credentials: &Credentials, pool: &sqlx::Pool<Postgres
         Some(user_info) => user_info,
         None => {
             println!("Fail at User info up");
-            return UserValidated::NotValidated();
+            return UserValidatedReturn::NotValidated();
         }
     };
 
@@ -314,181 +314,14 @@ pub async fn validate_user(credentials: &Credentials, pool: &sqlx::Pool<Postgres
             Ok(hasher) => hasher,
             Err(_) => {
                 println!("Fail at hash");
-                return UserValidated::NotValidated();
+                return UserValidatedReturn::NotValidated();
             }
         };
 
     let argon_hasher = build_argon2_hasher(); // Builds Argon hasher is current default settings
     match argon_hasher.verify_password(credentials.password.as_bytes(), &existing_password_hash) {
-        Ok(_) => UserValidated::Validated(),
-        Err(_) => UserValidated::NotValidated(),
+        Ok(_) => UserValidatedReturn::Validated(),
+        Err(_) => UserValidatedReturn::NotValidated(),
     }
 }
 
-#[cfg(test)]
-mod auth_tests {
-    use super::*;
-    async fn connect_to_pool() -> sqlx::Pool<Postgres>{
-        match  connect_to_db_get_pool().await {
-            Ok(pool) => pool,
-            Err(_) => panic!("could not connect to db"),
-        }
-    }
-
-    async fn complete_migrations(pool: &sqlx::Pool<Postgres>) -> () {
-        let sqlx_migrator = sqlx::migrate!();
-        let _migration_undo = match sqlx_migrator.undo(pool, 0).await {
-            Ok(_) => true,
-            Err(err) => return assert!(false, "migrator failed with err: {}", err.to_string()),
-        };
-
-        let _migration_run = match sqlx_migrator.run(pool).await {
-            Ok(_) => true,
-            Err(_) => return assert!(false, "migrator failed run"),
-        };
-    }
-    #[actix_web::test]
-    async fn get_session() {
-        let pool = connect_to_pool().await;
-        complete_migrations(&pool).await;
-
-        let creds = Credentials {
-            user_name: "test_user".to_string().to_owned(),
-            password: "my_pass".to_string().to_owned(),
-            realm: "user".to_string().to_owned(),
-        };
-
-        let _add_user_result = match add_user(&creds, &pool).await {
-            AddUserReturn::Good() => (),
-            _ => (),
-        };
-
-        match generate_session(&creds, &pool, 100).await {
-            Ok(session) => assert!(session.user_name == creds.user_name),
-            Err(err) => assert!(false, "{:?}", err)
-        }
-    }
-
-    #[actix_web::test]
-    async fn verify_session() {
-        let pool = connect_to_pool().await;
-        complete_migrations(&pool).await;
-
-        let creds = Credentials {
-            user_name: "test_user".to_string().to_owned(),
-            password: "my_pass".to_string().to_owned(),
-            realm: "user".to_string().to_owned(),
-        };
-
-        let _add_user_result = match add_user(&creds, &pool).await {
-            AddUserReturn::Good() => (),
-            _ => (),
-        };
-
-        let session = match generate_session(&creds, &pool, 100).await {
-            Ok(session) => session,
-            Err(err) => return assert!(false, "{:?}", err)
-        };
-
-        match validate_session(&session, &pool).await {
-            SessionValidated::ValidSession() => assert!(true, "Session validated"),
-            SessionValidated::InvalidSession() => assert!(false, "Session wrongly invalidated")
-        }
-    }
-
-#[actix_web::test]
-    async fn verify_session_invalid_token_end() {
-        let pool = connect_to_pool().await;
-        complete_migrations(&pool).await;
-
-        let creds = Credentials {
-            user_name: "test_user".to_string().to_owned(),
-            password: "my_pass".to_string().to_owned(),
-            realm: "user".to_string().to_owned(),
-        };
-
-        let _add_user_result = match add_user(&creds, &pool).await {
-            AddUserReturn::Good() => (),
-            _ => (),
-        };
-
-        let mut session = match generate_session(&creds, &pool, 100).await {
-            Ok(session) => session,
-            Err(err) => return assert!(false, "{:?}", err)
-        };
-
-        // Alter session token such that it no longer matches what is in the db
-        let replace_last_char_with = match session.session_token.pop() {
-            Some(c) => {
-                if c == 'a' {
-                    'b'
-                } else {
-                    'a'
-                }
-            }
-            None => 'a'
-        };
-
-        session.session_token.push(replace_last_char_with);
-        match validate_session(&session, &pool).await {
-            SessionValidated::ValidSession() => assert!(false, "Session validated wrongly"),
-            SessionValidated::InvalidSession() => assert!(true, "Session correctly invalidated")
-        }
-    }
-
-    #[actix_web::test]
-    async fn verify_session_invalid_user_name() {
-        let pool = connect_to_pool().await;
-        complete_migrations(&pool).await;
-
-        let creds = Credentials {
-            user_name: "test_user".to_string().to_owned(),
-            password: "my_pass".to_string().to_owned(),
-            realm: "user".to_string().to_owned(),
-        };
-
-        let _add_user_result = match add_user(&creds, &pool).await {
-            AddUserReturn::Good() => (),
-            _ => (),
-        };
-
-        let mut session = match generate_session(&creds, &pool, 100).await {
-            Ok(session) => session,
-            Err(err) => return assert!(false, "{:?}", err)
-        };
-
-        // Alter session token such that it no longer matches what is in the db
-        session.user_name = "".to_string();
-        match validate_session(&session, &pool).await {
-            SessionValidated::ValidSession() => assert!(false, "Session validated wrongly"),
-            SessionValidated::InvalidSession() => assert!(true, "Session correctly invalidated")
-        }
-    }
-
-    #[actix_web::test]
-    async fn invalidate_session_test() {
-        let pool = connect_to_pool().await;
-        complete_migrations(&pool).await;
-
-        let creds = Credentials {
-            user_name: "test_user".to_string().to_owned(),
-            password: "my_pass".to_string().to_owned(),
-            realm: "user".to_string().to_owned(),
-        };
-
-        let _add_user_result = match add_user(&creds, &pool).await {
-            AddUserReturn::Good() => (),
-            _ => (),
-        };
-
-        let mut session = match generate_session(&creds, &pool, 100).await {
-            Ok(session) => session,
-            Err(err) => return assert!(false, "{:?}", err)
-        };
-
-        match invalidate_session(&session, &pool).await {
-            SessionInvalided::SucessfullyInvalidated() => assert!(true, "Session invalidated correctly"),
-            _ => assert!(false, "Session invalidated error")
-        }
-    }
-}

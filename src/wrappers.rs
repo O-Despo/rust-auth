@@ -26,11 +26,11 @@ pub async fn validate_user_wrapper(
     };
 
     match auth::validate_user(&creds, pool.get_ref()).await {
-        auth::UserValidated::Validated() => HttpResponse::with_body(
+        auth::UserValidatedReturn::Validated() => HttpResponse::with_body(
             actix_web::http::StatusCode::ACCEPTED,
             format!("Right pass for {}", json_creds.user_name),
         ),
-        auth::UserValidated::NotValidated() => HttpResponse::with_body(
+        auth::UserValidatedReturn::NotValidated() => HttpResponse::with_body(
             actix_web::http::StatusCode::UNAUTHORIZED,
             format!("Not Authorized"),
         ),
