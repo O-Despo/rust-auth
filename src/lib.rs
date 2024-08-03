@@ -85,14 +85,14 @@ mod auth_tests {
         complete_migrations(&pool).await;
 
         let creds = auth::Credentials {
-            user_name: "test_user".to_string().to_owned(),
+            user_name: "test_user_verify_session".to_string().to_owned(),
             password: "mypass".to_string().to_owned(),
             realm: "user".to_string().to_owned(),
         };
 
         let _add_user_result = match auth::add_user(&creds, &pool).await {
             auth::AddUserReturn::Good() => (),
-            _ => (),
+            _ => panic!("Add user failed"),
         };
 
         let session = match auth::generate_session(&creds, &pool, 100).await {
@@ -191,7 +191,7 @@ mod auth_tests {
             _ => (),
         };
 
-        let mut session = match auth::generate_session(&creds, &pool, 100).await {
+        let session = match auth::generate_session(&creds, &pool, 100).await {
             Ok(session) => session,
             Err(err) => return assert!(false, "{:?}", err)
         };
