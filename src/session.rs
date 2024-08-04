@@ -9,10 +9,8 @@
 //! Note that this only provides functions relating to sessions. These functions can be used at the top of your own functions to check if a session
 //! is valid. However note that for the most part if you need to for example add a user (dose not relate to sessions) you should use `auth::add_user()` or
 //! `wrappers::add_user()` if you want a endpoint you can tie to.
-use actix_session::{self, Session};
+use actix_session;
 use actix_web::{HttpRequest, HttpResponse, Responder};
-use argon2::password_hash::rand_core::impls;
-use sqlx::prelude::FromRow;
 use sqlx::{self, Postgres};
 
 use crate::auth;
