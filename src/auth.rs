@@ -267,7 +267,16 @@ pub async fn add_user(credentials: &Credentials, pool: &sqlx::Pool<Postgres>) ->
         sql_insert_user_builder.build_query_as::<UserRow>();
     match sql_insert_build.fetch_optional(pool).await {
         Ok(_) => return AddUserReturn::Good(),
-        Err(err) => return AddUserReturn::InsertError(err.to_string()),
+        Err(err) => {
+            let _db_err = match err.as_database_error() {
+                Some(db_err) => 
+                match db_err.to_string().find("users_pkey") {
+                    Some(_match) => return AddUserReturn::UserNotUnique(),
+                    None => return AddUserReturn::InsertError(err.to_string())
+                }
+                None => return AddUserReturn::InsertError(err.to_string())
+            };
+        },
     }
 }
 

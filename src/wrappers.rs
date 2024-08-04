@@ -57,6 +57,10 @@ pub async fn add_user_wrapper(
             actix_web::http::StatusCode::UNAUTHORIZED,
             format!("User Name is already Taken"),
         ),
+        auth::AddUserReturn::InsertError(err) => HttpResponse::with_body(
+            actix_web::http::StatusCode::UNAUTHORIZED,
+            format!("Server Error: {:?}", err),
+        ),
         _ => HttpResponse::with_body(
             actix_web::http::StatusCode::UNAUTHORIZED,
             format!("Server Error"),
