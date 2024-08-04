@@ -51,11 +51,15 @@ pub async fn add_user_wrapper(
     match auth::add_user(&creds, pool.get_ref()).await {
         auth::AddUserReturn::Good() => HttpResponse::with_body(
             actix_web::http::StatusCode::ACCEPTED,
-            format!("Right pass for {}", json_creds.user_name),
+            format!("User Created {}", json_creds.user_name),
+        ),
+        auth::AddUserReturn::UserNotUnique() => HttpResponse::with_body(
+            actix_web::http::StatusCode::UNAUTHORIZED,
+            format!("User Name is already Taken"),
         ),
         _ => HttpResponse::with_body(
             actix_web::http::StatusCode::UNAUTHORIZED,
-            format!("Not Authorized"),
+            format!("Server Error"),
         ),
     }
 }
@@ -118,96 +122,5 @@ pub async fn validate_session_wrapper(
         auth::SessionValidated::InvalidSession() => {
             actix_web::HttpResponse::Unauthorized().body("")
         }
-    }
-}
-
-pub async fn session_based_generate_session(
-    session: actix_session::Session,
-    json_creds: auth::Credentials,
-    pool: &sqlx::Pool<Postgres>
-) -> Result<auth::Session, impl Responder> {
-    let creds = auth::Credentials {
-        password: json_creds.password.to_string(),
-        user_name: json_creds.user_name.to_string(),
-        realm: json_creds.realm.to_string(),
-    };
-
-let local_session = match auth::generate_session(&creds, pool, 0).await {
-        Ok(session) => session,
-        Err(_) => return Err(HttpResponse::Unauthorized().body("Session failed to generate")),
-    };
-
-    let _user_name_insert = match session.insert("user_name", &local_session.user_name) {
-        Ok(_) => (),
-        Err(_) => {
-            return Err(HttpResponse::Unauthorized().body("Failed to insert user_name into session"))
-        }
-    };
-
-    let _session_token_insert = match session.insert("session_token", &local_session.session_token)
-    {
-        Ok(_) => (),
-        Err(_) => {
-            return Err(HttpResponse::Unauthorized().body("Failed to insert token into session"))
-        }
-    };
-
-    let _time_to_die_insert =
-        match session.insert("time_to_die", &local_session.time_to_die.to_rfc3339()) {
-            Ok(time_to_die) => time_to_die,
-            Err(_) => {
-                return Err(
-                    HttpResponse::Unauthorized().body("Failed to insert time_to_die into session")
-                )
-            }
-        };
-
-    return Ok(local_session);
-}
-
-pub async fn session_based_check_valid_session(
-    client_session: actix_session::Session,
-    pool: &sqlx::Pool<Postgres>,
-) -> Result<auth::Session, impl Responder> {
-    let user_name = match client_session.get::<String>("user_name") {
-        Ok(user_name_option) => match user_name_option {
-            Some(user_name) => user_name,
-            None => return Err(actix_web::HttpResponse::Unauthorized().body("user name not set"))
-        }
-        Err(_) => return Err(actix_web::HttpResponse::Unauthorized().body("user name not set"))
-    };
-
-    let session_token = match client_session.get::<String>("session_token") {
-        Ok(session_token_option) => match session_token_option{
-            Some(session_token) => session_token,
-            None => return Err(actix_web::HttpResponse::Unauthorized().body("session token not set"))
-        }
-        Err(_) => return Err(actix_web::HttpResponse::Unauthorized().body("session token not set"))
-    };
-
-    let time_to_die = match client_session.get::<String>("time_to_die") {
-        Ok(session_token_option) => match session_token_option{
-            Some(session_token) => session_token,
-            None => return Err(actix_web::HttpResponse::Unauthorized().body("time_to_die token not set"))
-        }
-        Err(_) => return Err(actix_web::HttpResponse::Unauthorized().body("time_to_die token not set"))
-    };
-
-    let time = match chrono::DateTime::parse_from_rfc3339(&time_to_die) {
-        Ok(time) => time,
-        Err(_) => {
-            return Err(actix_web::HttpResponse::Unauthorized().body("Failed to parse time you may not have a session set"));
-        }
-    };
-
-    let local_session = auth::Session {
-        user_name: user_name,
-        session_token: session_token,
-        time_to_die: time.into(),
-    };
-
-    match validate_session(&local_session, &pool).await {
-        SessionValidated::ValidSession() => Ok(local_session),
-        SessionValidated::InvalidSession() => Err(actix_web::HttpResponse::Unauthorized().body("Failed to validate"))
     }
 }
