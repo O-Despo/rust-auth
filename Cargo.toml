@@ -1,6 +1,6 @@
 [package]
 name = "mini-rust-auth"
-version = "0.1.6"
+version = "0.1.7"
 edition = "2021"
 license = "MIT"
 description = "A maybe to simple authentication crate."
