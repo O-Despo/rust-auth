@@ -88,7 +88,7 @@ pub async fn generate_session_wrapper(
         realm: json_creds.realm.to_string(),
     };
 
-    match auth::generate_session(&creds, pool.get_ref(), 0).await {
+    match auth::generate_session(&creds, pool.get_ref(), auth::SESSION_VALID_FOR_SECONDS).await {
         Ok(session) => actix_web::HttpResponse::Accepted().json(session),
         Err(_) => actix_web::HttpResponse::Unauthorized().body(""),
     }

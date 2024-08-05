@@ -161,7 +161,7 @@ mod auth_tests {
             _ => (), // Pass bc other tests may have inserted user
         };
 
-        match auth::generate_session(&creds, &pool, 100).await {
+        match auth::generate_session(&creds, &pool, auth::SESSION_VALID_FOR_SECONDS).await {
             Ok(session) => {
                 assert!(session.user_name == creds.user_name && session.session_token != "")
             }
@@ -186,7 +186,7 @@ mod auth_tests {
             _ => panic!("Add user failed"),
         };
 
-        let session = match auth::generate_session(&creds, &pool, 100).await {
+        let session = match auth::generate_session(&creds, &pool, auth::SESSION_VALID_FOR_SECONDS).await {
             Ok(session) => session,
             Err(err) => {
                 return assert!(
@@ -221,7 +221,7 @@ mod auth_tests {
             _ => (),
         };
 
-        let mut session = match auth::generate_session(&creds, &pool, 100).await {
+        let mut session = match auth::generate_session(&creds, &pool, auth::SESSION_VALID_FOR_SECONDS).await {
             Ok(session) => session,
             Err(err) => return assert!(false, "{:?}", err),
         };
@@ -263,7 +263,7 @@ mod auth_tests {
             _ => (),
         };
 
-        let mut session = match auth::generate_session(&creds, &pool, 100).await {
+        let mut session = match auth::generate_session(&creds, &pool, auth::SESSION_VALID_FOR_SECONDS).await {
             Ok(session) => session,
             Err(err) => return assert!(false, "{:?}", err),
         };
@@ -294,7 +294,7 @@ mod auth_tests {
             _ => (),
         };
 
-        let session = match auth::generate_session(&creds, &pool, 100).await {
+        let session = match auth::generate_session(&creds, &pool, auth::SESSION_VALID_FOR_SECONDS).await {
             Ok(session) => session,
             Err(err) => return assert!(false, "{:?}", err),
         };

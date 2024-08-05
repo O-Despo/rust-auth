@@ -12,6 +12,8 @@ use serde;
 use sqlx::FromRow;
 use serde::ser::SerializeStruct;
 
+pub const SESSION_VALID_FOR_SECONDS: i64 = 3600;
+
 /// Basic information about a user. Note that `realm` can be a arbitrary string and you can use to figure out a group a user belongs to like `"admin"`.
 #[derive(Debug, serde::Deserialize, serde::Serialize, Clone)]
 pub struct Credentials {
@@ -151,7 +153,7 @@ pub async fn generate_session(
     let session = Session{
         user_name: credentials.user_name.to_string(),
         session_token: gen_rand_string_of_len(100),
-        time_to_die: chrono::Utc::now() + chrono::TimeDelta::minutes(1)
+        time_to_die: chrono::Utc::now() + chrono::TimeDelta::seconds(secs_after_creation_to_die)
     };
 
     let mut sql_insert_session_builder = sqlx::QueryBuilder::new("INSERT INTO sessions (user_name, session_token, time_to_die) VALUES (");

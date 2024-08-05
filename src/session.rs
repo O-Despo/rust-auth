@@ -37,7 +37,7 @@ pub async fn generate_session(
     creds: auth::Credentials,
     pool: &sqlx::Pool<Postgres>,
 ) -> GenerateSessionReturn {
-    let local_session = match auth::generate_session(&creds, pool, 0).await {
+    let local_session = match auth::generate_session(&creds, pool, auth::SESSION_VALID_FOR_SECONDS).await {
         Ok(session) => session,
         Err(err) => {
             return GenerateSessionReturn::FailedToGenerate(format!("Failed with {:?}", err))
