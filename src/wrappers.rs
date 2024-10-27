@@ -1,6 +1,7 @@
 //! Provides function wrappers around the `auth` module which are ready to be used as endpoints in actix web.
 use actix_session::{self, Session};
 use actix_web::{HttpRequest, HttpResponse, Responder};
+use argon2::password_hash::rand_core::impls;
 use sqlx::prelude::FromRow;
 use sqlx::{self, Postgres};
 
@@ -128,3 +129,33 @@ pub async fn validate_session_wrapper(
         }
     }
 }
+
+/// Wrapper for `delete_user`
+/// 
+/// 
+pub async fn delete_user_wrapper(
+    json_creds: actix_web::web::Json<auth::Credentials>,
+    pool: actix_web::web::Data<sqlx::Pool<Postgres>>,
+) -> impl Responder {
+    let creds = auth::Credentials {
+        password: json_creds.password.to_string(),
+        user_name: json_creds.user_name.to_string(),
+        realm: json_creds.realm.to_string(),
+    };
+
+    match auth::delete_user(&creds, pool.get_ref()).await {
+        auth::DeleteUserReturn::Good() => HttpResponse::with_body(
+            actix_web::http::StatusCode::ACCEPTED,
+            format!("Deleted User")),
+        auth::DeleteUserReturn::BadUserOrPassword() => HttpResponse::with_body(
+            actix_web::http::StatusCode::UNAUTHORIZED,
+            format!("User name or password dose not exist or is incorrect")),
+        auth::DeleteUserReturn::FailedToDeleteSessions(_) => HttpResponse::with_body(
+            actix_web::http::StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Valid username and password but unable to delete existing sessions")),
+        auth::DeleteUserReturn::DataBaseError(_) => HttpResponse::with_body(
+            actix_web::http::StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Database issue"))
+    }
+}
+

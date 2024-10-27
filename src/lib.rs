@@ -120,7 +120,7 @@ mod session_test {
 
 #[cfg(test)]
 mod auth_tests {
-    use crate::auth;
+    use crate::{auth::{self, EndSessionReturn}, session::EndSessionsReturn};
 
     /// Connects to database pool
     async fn connect_to_pool() -> sqlx::Pool<sqlx::Postgres> {
@@ -312,6 +312,109 @@ mod auth_tests {
             }
 
             _ => assert!(false, "Session invalidated error"),
+        }
+    }
+
+    #[actix_web::test]
+    async fn end_sessions() {
+        let pool = connect_to_pool().await;
+        complete_migrations(&pool).await;
+
+        let creds = auth::Credentials {
+            user_name: "test_user".to_string().to_owned(),
+            password: "my_pass".to_string().to_owned(),
+            realm: "user".to_string().to_owned(),
+        };
+
+        let _add_user_result = match auth::add_user(&creds, &pool).await {
+            auth::AddUserReturn::Good() => (),
+            _ => (),
+        };
+
+        let session = match auth::generate_session(&creds, &pool, auth::SESSION_VALID_FOR_SECONDS).await {
+            Ok(session) => session,
+            Err(err) => return assert!(false, "{:?}", err),
+        };
+
+        let _session = match auth::generate_session(&creds, &pool, auth::SESSION_VALID_FOR_SECONDS).await {
+            Ok(session) => session,
+            Err(err) => return assert!(false, "{:?}", err),
+        };
+        match auth::end_sessions(&session, &pool).await {
+            auth::EndSessionReturn::Ended() => println!("Sessions Dropped"),
+            _ => assert!(false, "Session falsely invalidated"),
+        }
+
+        let mut sql_check_delete_session_builder = sqlx::QueryBuilder::new("SELECT * FROM sessions WHERE user_name='test_user';");
+
+        println!("{:?}", sql_check_delete_session_builder.sql());
+        match sql_check_delete_session_builder.build().fetch_all(&pool).await {
+            Ok(rows) => {
+                assert!(rows.len() == 0, "Sessions dropped");
+            },
+            Err(err) => {
+                assert!(false, "got err so sessions prob dropped");
+            }
+        }
+    }
+
+    #[actix_web::test]
+    async fn delete_user() {
+        let pool = connect_to_pool().await;
+        complete_migrations(&pool).await;
+
+        let creds = auth::Credentials {
+            user_name: "test_user".to_string().to_owned(),
+            password: "my_pass".to_string().to_owned(),
+            realm: "user".to_string().to_owned(),
+        };
+
+        let _add_user_result = match auth::add_user(&creds, &pool).await {
+            auth::AddUserReturn::Good() => (),
+            _ => (),
+        };
+
+        let _session = match auth::generate_session(&creds, &pool, auth::SESSION_VALID_FOR_SECONDS).await {
+            Ok(session) => session,
+            Err(err) => return assert!(false, "{:?}", err),
+        };
+
+        let _session = match auth::generate_session(&creds, &pool, auth::SESSION_VALID_FOR_SECONDS).await {
+            Ok(session) => session,
+            Err(err) => return assert!(false, "{:?}", err),
+        };
+
+        match auth::delete_user(&creds, &pool).await {
+            auth::DeleteUserReturn::BadUserOrPassword() => assert!(false, "Error bad user or pass flag"),
+            auth::DeleteUserReturn::FailedToDeleteSessions(msg) => assert!(false, "Could not delete session msg: {msg}"),
+            auth::DeleteUserReturn::DataBaseError(msg) => assert!(false, "Database error: {msg}"),
+            auth::DeleteUserReturn::Good() => assert!(true, "delete says it was good"),
+        }
+        
+        // Check sessions are gone 
+        let mut sql_check_delete_session_builder = sqlx::QueryBuilder::new("SELECT * FROM sessions WHERE user_name='test_user';");
+
+        println!("{:?}", sql_check_delete_session_builder.sql());
+        match sql_check_delete_session_builder.build().fetch_all(&pool).await {
+            Ok(rows) => {
+                assert!(rows.len() == 0, "Sessions dropped");
+            },
+            Err(_err) => {
+                assert!(false, "got err so sessions prob dropped");
+            }
+        }
+        
+        // Check user is gone
+        let mut sql_check_user_deleted_builder = sqlx::QueryBuilder::new("SELECT * FROM users WHERE user_name='test_user';");
+
+        println!("{:?}", sql_check_user_deleted_builder.sql());
+        match sql_check_user_deleted_builder.build().fetch_all(&pool).await {
+            Ok(rows) => {
+                assert!(rows.len() == 0, "users dropped");
+            },
+            Err(_err) => {
+                assert!(false, "got err so users prob dropped");
+            }
         }
     }
 }

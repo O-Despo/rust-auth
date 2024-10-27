@@ -10,7 +10,8 @@
 //! is valid. However note that for the most part if you need to for example add a user (dose not relate to sessions) you should use `auth::add_user()` or
 //! `wrappers::add_user()` if you want a endpoint you can tie to.
 use actix_session;
-use actix_web::{HttpRequest, HttpResponse, Responder};
+use actix_web::{cookie::time::format_description::modifier::End, HttpRequest, HttpResponse, Responder};
+use argon2::password_hash::rand_core::impls;
 use sqlx::{self, Postgres};
 
 use crate::auth;
@@ -27,6 +28,13 @@ pub enum ValidatedSessionReturn<'a> {
     /// Could not exists in DB or user may be wrong.
     SessionInvalid(),
     ClientSessionNotSetCorrectly(&'a str),
+}
+
+pub enum EndSessionsReturn<'a> {
+    RemovedSessions(),
+    SessionInvalid(),
+    ClientSessionNotSetCorrectly(&'a str),
+    DatabaseError(String),
 }
 
 ///`generate_session` will create a auth session based on the provided credentials
@@ -158,5 +166,64 @@ pub async fn validate_session_web_resp(
             HttpResponse::InternalServerError().body("Session out of date")
         }
         ValidatedSessionReturn::ValidSession() => HttpResponse::Accepted().body("Session Good"),
+    }
+}
+
+pub async fn end_sessions<'a> (
+    client_session: actix_session::Session,
+    pool: actix_web::web::Data<sqlx::Pool<Postgres>>,
+) -> EndSessionsReturn<'a> {
+    let user_name = match client_session.get::<String>("user_name") {
+        Ok(user_name_option) => match user_name_option {
+            Some(user_name) => user_name,
+            None => return EndSessionsReturn::ClientSessionNotSetCorrectly("user_name"),
+        },
+        Err(_) => return EndSessionsReturn::ClientSessionNotSetCorrectly("user_name"),
+    };
+
+    let session_token = match client_session.get::<String>("session_token") {
+        Ok(session_token_option) => match session_token_option {
+            Some(session_token) => session_token,
+            None => return EndSessionsReturn::ClientSessionNotSetCorrectly("session_token"),
+        },
+        Err(_) => return EndSessionsReturn::ClientSessionNotSetCorrectly("session_token"),
+    };
+
+    let time_to_die = match client_session.get::<String>("time_to_die") {
+        Ok(session_token_option) => match session_token_option {
+            Some(session_token) => session_token,
+            None => return EndSessionsReturn::ClientSessionNotSetCorrectly("time_to_die"),
+        },
+        Err(_) => return EndSessionsReturn::ClientSessionNotSetCorrectly("time_to_die"),
+    };
+
+    let time = match chrono::DateTime::parse_from_rfc3339(&time_to_die) {
+        Ok(time) => time,
+        Err(_) => return EndSessionsReturn::ClientSessionNotSetCorrectly("time set wrong in time_to_die"),
+    };
+
+    let local_session = auth::Session {
+        user_name: user_name,
+        session_token: session_token,
+        time_to_die: time.into(),
+    };
+
+    match auth::end_sessions(&local_session, &pool).await {
+        auth::EndSessionReturn::BadSession() => EndSessionsReturn::SessionInvalid(),
+        auth::EndSessionReturn::DataBaseError(err) => EndSessionsReturn::DatabaseError(err.to_string()),
+        auth::EndSessionReturn::Ended() => EndSessionsReturn::RemovedSessions(),
+
+    }
+}
+
+pub async fn end_sessions_web_resp(
+    client_session: actix_session::Session,
+    pool: actix_web::web::Data<sqlx::Pool<Postgres>>,   
+) -> impl Responder {
+    match end_sessions(client_session, pool).await {
+        EndSessionsReturn::RemovedSessions() => HttpResponse::Accepted().body("Removed All Sessions"),
+        EndSessionsReturn::ClientSessionNotSetCorrectly(msg) => HttpResponse::BadRequest().body(msg),
+        EndSessionsReturn::SessionInvalid() => HttpResponse::Forbidden().body("Invalid Session"),
+        EndSessionsReturn::DatabaseError(msg) => HttpResponse::InternalServerError().body(format!("Database Issue: {msg}"))
     }
 }

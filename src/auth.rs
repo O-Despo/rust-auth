@@ -40,6 +40,21 @@ pub enum AddUserReturn {
     InsertError(String),
 }
 
+#[derive(Debug)]
+pub enum DeleteUserReturn {
+    Good(), // Deleted user
+    FailedToDeleteSessions(String),
+    BadUserOrPassword(),
+    DataBaseError(String),
+}
+
+#[derive(Debug)]
+pub enum EndSessionReturn {
+    Ended(),
+    BadSession(), 
+    DataBaseError(String),
+}
+
 /// Error return type of `validate_user`
 #[derive(Debug)]
 pub enum UserValidatedReturn {
@@ -282,6 +297,55 @@ pub async fn add_user(credentials: &Credentials, pool: &sqlx::Pool<Postgres>) ->
     }
 }
 
+/// `delete_user`
+/// 
+/// Remove a user given proper credentials
+pub async fn delete_user(credentials: &Credentials, pool: &sqlx::Pool<Postgres>) -> DeleteUserReturn {
+    // Check if user is valid in DB we will not use this info later so we toss it
+    let _valid_user = match validate_user(&credentials, pool).await {
+        UserValidatedReturn::Validated() => (),
+        UserValidatedReturn::NotValidated() => return DeleteUserReturn::BadUserOrPassword()
+    };
+    // Delete Sessions first
+    let mut sql_delete_session_builder = sqlx::QueryBuilder::new("DELETE FROM sessions WHERE user_name=");
+
+    sql_delete_session_builder.push_bind(&credentials.user_name).push(";");
+
+    let _sessions_deleted_option = match sql_delete_session_builder.build().fetch_optional(pool).await {
+        Ok(_) => (),
+        Err(err) => return DeleteUserReturn::FailedToDeleteSessions(err.to_string())
+    };
+
+    // Delete user
+    let mut sql_delete_use_builder = sqlx::QueryBuilder::new("DELETE FROM users WHERE user_name =");
+
+    sql_delete_use_builder.push_bind(&credentials.user_name).push(";");
+
+    let _user_deleted_option = match sql_delete_use_builder.build().fetch_optional(pool).await {
+        Ok(_) => return DeleteUserReturn::Good(),
+        Err(err) => return  DeleteUserReturn::DataBaseError(err.to_string())
+    };
+}
+
+/// `end_sessions`
+/// 
+/// Will drop all sessions for the users session table
+pub async fn end_sessions(session: &Session, pool: &sqlx::Pool<Postgres>) -> EndSessionReturn {
+    let _valid_session = match validate_session(session, pool).await {
+        SessionValidated::ValidSession() => (),
+        SessionValidated::InvalidSession() => return EndSessionReturn::BadSession()
+    };
+
+    let mut sql_delete_session_builder = sqlx::QueryBuilder::new("DELETE FROM sessions WHERE user_name=");
+
+    sql_delete_session_builder.push_bind(&session.user_name).push(";");
+
+    let _sessions_deleted_option = match sql_delete_session_builder.build().fetch_optional(pool).await {
+        Ok(_) => return  EndSessionReturn::Ended(),
+        Err(err) => return EndSessionReturn::DataBaseError(err.to_string())
+    };
+}
+
 /// `validate_user`
 /// 
 /// Given the user credentials provided will check if the credentials are valid and in the database.
@@ -294,10 +358,6 @@ pub async fn validate_user(credentials: &Credentials, pool: &sqlx::Pool<Postgres
     sql_user_builder
         .push_bind(credentials.user_name.clone())
         .push(";");
-
-    println!("Got pass:{}", &credentials.password);
-    println!("Got name:{}", &credentials.user_name);
-    println!("SQL:{}", sql_user_builder.sql().to_string());
 
     let user_info_option: Option<UserRow> = match sql_user_builder
         .build_query_as::<UserRow>()
@@ -335,4 +395,3 @@ pub async fn validate_user(credentials: &Credentials, pool: &sqlx::Pool<Postgres
         Err(_) => UserValidatedReturn::NotValidated(),
     }
 }
-
